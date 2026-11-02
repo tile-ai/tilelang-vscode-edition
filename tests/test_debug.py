@@ -24,7 +24,7 @@ class TestCompileFlags(unittest.TestCase):
 
 
 class TestMergeDebugOptions(unittest.TestCase):
-    def _merge(self, kwargs, **overrides):
+    def _merge(self, kwargs, line_levels=False, **overrides):
         options = {
             "device_debug": True,
             "generated_dir": "/tmp/tlsp-debug/generated",
@@ -34,7 +34,9 @@ class TestMergeDebugOptions(unittest.TestCase):
             "TL_EMIT_LINE_DIRECTIVES": "tl.emit_line_directives",
             "CUDA_KERNELS_OUTPUT_DIR": "cuda.kernels_output_dir",
         }
-        with mock.patch.object(tlsp_debug, "_pass_config_key", side_effect=keys.get):
+        with mock.patch.object(tlsp_debug, "_pass_config_key", side_effect=keys.get), mock.patch.object(
+            tlsp_debug, "_supports_line_directive_levels", return_value=line_levels
+        ):
             return tlsp_debug.merge_debug_options(kwargs, **options)
 
     def test_adds_line_directives_device_debug_and_output_dirs(self):
@@ -70,6 +72,15 @@ class TestMergeDebugOptions(unittest.TestCase):
         self.assertEqual(merged["compile_flags"], ["-O3", "-G"])
         self.assertEqual(merged["debug_root_path"], "/tmp/tlsp-debug/generated")
 
+    def test_integer_line_levels_use_per_line_mode(self):
+        merged = self._merge({}, line_levels=True)
+        self.assertEqual(merged["pass_configs"]["tl.emit_line_directives"], 2)
+
+    def test_detects_upstream_integer_level_parser(self):
+        fake_env = mock.Mock(spec=["parse_int_level"])
+        with mock.patch.dict(sys.modules, {"tilelang.env": fake_env}):
+            self.assertTrue(tlsp_debug._supports_line_directive_levels())
+
     def test_raw_string_flags_keep_quotes_and_spaces(self):
         raw = '-DFOO="hello world" -I"/tmp/include path"'
         merged = self._merge({"compile_flags": raw})
@@ -97,6 +108,7 @@ class TestMergeDebugOptions(unittest.TestCase):
     def test_line_directives_off_does_not_add_mapping_options(self):
         merged = self._merge({}, line_directives=False, device_debug=False)
         self.assertNotIn("tl.emit_line_directives", merged["pass_configs"])
+        self.assertNotIn("tl.emit_line_directives_every_line", merged["pass_configs"])
         self.assertNotIn("compile_flags", merged)
 
     def test_compile_call_has_no_debug_root_path(self):
@@ -157,9 +169,11 @@ class TestDebugRunnerEndToEnd(unittest.TestCase):
             "def compile(*args, **kwargs):\n"
             "    return {'kind': 'compile', 'kwargs': kwargs}\n"
         )
-        line_key = '    TL_EMIT_LINE_DIRECTIVES = "tl.emit_line_directives"\n' if line_directives else ""
+        line_keys = '    TL_EMIT_LINE_DIRECTIVES = "tl.emit_line_directives"\n' if line_directives else ""
+        if line_directives:
+            (package / "env.py").write_text("def parse_int_level(value, name):\n    return int(value)\n")
         (package / "transform.py").write_text(
-            "class PassConfigKey:\n" + line_key + '    CUDA_KERNELS_OUTPUT_DIR = "cuda.kernels_output_dir"\n'
+            "class PassConfigKey:\n" + line_keys + '    CUDA_KERNELS_OUTPUT_DIR = "cuda.kernels_output_dir"\n'
         )
         script = root / "probe.py"
         script.write_text(
@@ -173,6 +187,7 @@ class TestDebugRunnerEndToEnd(unittest.TestCase):
             "print('COMPILE', tilelang.compile('f', compile_flags=['-O3']))\n"
             "print('ARGV', sys.argv)\n"
             "print('ENV', os.environ.get('TILELANG_ENABLE_IR_SPAN'), os.environ.get('TILELANG_DISABLE_CACHE'))\n"
+            "print('LINE_ENV', os.environ.get('TILELANG_EMIT_LINE_DIRECTIVES'))\n"
         )
         return script
 
@@ -184,7 +199,8 @@ class TestDebugRunnerEndToEnd(unittest.TestCase):
         env["TILELANG_ENABLE_IR_SPAN"] = "0"
         env["TILELANG_DISABLE_CACHE"] = "0"
         return subprocess.run(
-            [sys.executable, "-m", "tlsp.debug", "--debug-dir", str(debug_dir), *runner_args, "--", str(script), "--flag"],
+            # Disable site hooks so an editable real TileLang cannot shadow the fake package.
+            [sys.executable, "-S", "-m", "tlsp.debug", "--debug-dir", str(debug_dir), *runner_args, "--", str(script), "--flag"],
             capture_output=True,
             text=True,
             env=env,
@@ -208,14 +224,18 @@ class TestDebugRunnerEndToEnd(unittest.TestCase):
             self.assertIn(generated_dir, jit_line)
             self.assertIn("'-G'", jit_line)
             self.assertIn("'keep': 1", jit_line)
-            self.assertIn("'tl.emit_line_directives': True", jit_line)
+            self.assertIn("'tl.emit_line_directives': 2", jit_line)
+            self.assertNotIn("tl.emit_line_directives_every_line", jit_line)
             self.assertIn("'cuda.kernels_output_dir'", jit_line)
             self.assertIn("'-DFOO=\"hello world\"'", jit_line)
             self.assertIn("'-G'", compile_line)
+            self.assertNotIn("tl.emit_line_directives_every_line", compile_line)
             self.assertIn("'cuda.kernels_output_dir'", compile_line)
             self.assertNotIn("debug_root_path", compile_line)
             self.assertIn(f"ARGV ['{script.resolve()}', '--flag']", proc.stdout)
             self.assertIn("ENV 1 1", proc.stdout)
+            self.assertIn("LINE_ENV 2", proc.stdout)
+            self.assertIn("Python line mapping: on (every generated line)", proc.stderr)
             self.assertTrue((debug_dir / "generated").is_dir())
 
     def test_missing_line_mapping_fails_unless_explicitly_disabled(self):
@@ -234,6 +254,7 @@ class TestDebugRunnerEndToEnd(unittest.TestCase):
             self.assertEqual(fallback.returncode, 0, fallback.stderr)
             self.assertIn("Python line mapping: off", fallback.stderr)
             self.assertIn("JIT", fallback.stdout)
+            self.assertIn("LINE_ENV 0", fallback.stdout)
             self.assertNotIn("tl.emit_line_directives", fallback.stdout)
 
 

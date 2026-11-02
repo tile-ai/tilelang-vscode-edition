@@ -1,28 +1,15 @@
-# TileLang CUDA Debugging: Implementation and Validation
+# TileLang CUDA Debugging
 
 [中文版](./cuda-debugging_zh.md)
 
-## Current status
+## Overview
 
 This repository provides an experimental CUDA debugging entry point. It reuses the
 `cuda-gdb` debug adapter from NVIDIA Nsight Visual Studio Code Edition and maps generated
 TileLang device code back to the user's Python source lines. No custom DAP fork or TileLang
 source changes are required.
 
-Source-path analysis, launcher unit tests, extension configuration tests, TypeScript
-compilation, and lint have passed. Real GPU acceptance has also passed on Ubuntu 24.04 with
-an RTX 5090 (`sm_120a`), NVCC/CUDA-GDB 13.0, and TileLang 0.1.15:
-
-- Python pending breakpoints resolve and stop after JIT loading;
-- CUDA kernel and thread inspection works, including `threadIdx.x`;
-- device stepping moves from Python line 23 to line 24 in the acceptance fixture;
-- numerical checks pass after continuing execution;
-- the CUBIN DWARF line table contains the original Python filename and line numbers.
-
-Manual debugging through VS Code Remote-SSH and Nsight has also been confirmed. The UI
-checklist below is retained for reproducibility.
-
-Requirements:
+## Requirements
 
 - Linux locally or through Remote-SSH/WSL, an NVIDIA GPU, and CUDA Toolkit with nvcc and cuda-gdb;
 - NVIDIA Nsight Visual Studio Code Edition for VS Code debugging;
@@ -42,13 +29,15 @@ TileLang's `CodeGenTileLangCBase` emits the following directive for statements w
 ```
 
 nvcc carries these logical filenames and line numbers into the device debug line table, allowing
-cuda-gdb to display a device stop as `kernel.py:42`. Mapping is statement-level and best-effort:
-one TileLang operation may expand to many CUDA statements. Generated statements without spans
-inherit the preceding mapping, so adjacent Python lines can share or drift in complex kernels.
+cuda-gdb to display a device stop as `kernel.py:42`. With current TileLang source builds,
+`tlsp.debug` selects `tl.emit_line_directives=2` and sets `TILELANG_EMIT_LINE_DIRECTIVES=2`.
+This re-anchors every generated physical line instead of letting a multi-line C++ statement
+inherit logical lines `N+1`, `N+2`, and so on. Versions without integer line-directive levels
+fall back to statement-level mapping.
 
-Four upstream codegen tests, including CUDA source generation, passed in the GPU environment.
-They cover enabled mapping, the disabled default, repeated directives for the same Python line,
-and CUDA Python line mapping.
+Mapping remains best-effort: loops naturally return to their loop line, and generated barriers
+or scaffolding may map to an enclosing statement or function entry rather than the preceding
+Python line. Column-level mapping is not provided.
 
 ### Device debug information
 
@@ -75,9 +64,9 @@ TileLang kernel, or disable this option and rely only on Python pending breakpoi
 ### Cache and generated sources
 
 The launcher sets `TILELANG_DISABLE_CACHE=1` by default and forces
-`TILELANG_ENABLE_IR_SPAN=1` when Python mapping is enabled. This prevents external settings or
-autotune result caches from bypassing the debug build. `--keep-cache` restores caching, with the
-corresponding reuse risk left to the user.
+`TILELANG_ENABLE_IR_SPAN=1` when Python mapping is enabled. Current TileLang source builds use
+`TILELANG_EMIT_LINE_DIRECTIVES=2`. `--no-line-directives` disables line mapping. `--keep-cache`
+restores caching, with the corresponding reuse risk left to the user.
 
 Generated artifacts are written under `.tlsp/debug/generated`:
 
@@ -98,7 +87,7 @@ VS Code
             └─ cuda-gdb
                  └─ python -m tlsp.debug --debug-dir .tlsp/debug -- kernel.py
                       ├─ Disable cache and enable IR spans
-                      ├─ tl.emit_line_directives = True
+                      ├─ tl.emit_line_directives = 2 (when integer levels are supported)
                       ├─ compile_flags += -G (or -lineinfo)
                       ├─ Set JIT/NVCC artifact directories
                       └─ runpy.run_path(kernel.py)
@@ -226,14 +215,13 @@ The test sets a Python pending breakpoint on a device computation line in
 
 - the JIT binary loads and execution stops at the original Python filename and line;
 - `info cuda kernels` shows the target kernel and `print threadIdx.x` returns an integer;
-- `next` advances from Python line 23 to line 24;
+- two `next` commands follow the loop control flow `23 -> 22 -> 23`, rather than drifting
+  immediately to line 24;
 - disabling the breakpoint and continuing produces the numerical-success marker;
-- generated sources contain the corresponding `#line`.
+- each generated source repeats the Python line-23 directive at least five times for the
+  multi-line vector addition.
 
-This automated test passed on the RTX 5090/CUDA 13.0 environment. A separate native CUDA smoke
-test first verified cuda-gdb device breakpoints, thread variables, and numerical results, ruling
-out a container or driver that fundamentally could not debug CUDA. The test is explicitly skipped
-when `TLSP_TEST_CUDA_GDB` is unset on ordinary development machines and CI.
+When `TLSP_TEST_CUDA_GDB` is unset, the test is explicitly skipped.
 
 ### VS Code manual checklist
 
@@ -242,7 +230,8 @@ when `TLSP_TEST_CUDA_GDB` is unset on ordinary development machines and CI.
 - At the stop, run `-exec info cuda kernels`, `-exec info cuda threads`, and
   `-exec print threadIdx.x` in the Debug Console.
 - Step through device code and confirm that the editor shows the original Python file rather
-  than a temporary `.cu` file.
+  than a temporary `.cu` file. Do not expect monotonically increasing lines: loops can return
+  to their loop line, and generated barriers or scaffolding can map to the function entry.
 - Confirm that **Open Generated CUDA Source** finds JIT `.c` and NVCC `.cu` files.
 - If the breakpoint misses, inspect generated `#line` directives first. After the target kernel
   loads, run `-exec break /path/to/kernel.py:42` in the Debug Console to distinguish a pending
@@ -250,21 +239,18 @@ when `TLSP_TEST_CUDA_GDB` is unset on ordinary development machines and CI.
 
 ## Support boundaries
 
-- The primary paths are regular CUDA `@tilelang.jit` and `tilelang.compile`; the default
-  `tvm_ffi` backend has passed GPU acceptance. `par_compile` can indirectly use the compile
-  hook but does not receive JITImpl source copies.
+- The primary paths are regular CUDA `@tilelang.jit` and `tilelang.compile` with the
+  `tvm_ffi` execution backend. `par_compile` can indirectly use the compile hook but does not
+  receive JITImpl source copies.
 - Non-grouped autotune usually passes through these entry points. **Grouped autotune bypasses
   the hooks, can lose `-G` and line mapping, and is not currently supported.**
 - Direct `JITKernel` construction, direct cache/lower calls, and separate Python compilation
   subprocesses are not managed by this monkeypatch. CuTeDSL and raw CUDA source kernels do not
   use this C-codegen line mapping.
-- cython and NVRTC have relevant flag paths but were not included in the first end-to-end
-  acceptance matrix. Do not extrapolate the default-backend result to every execution backend.
-- Mapping has no column-level precision, and a `-G` build can behave differently from an
-  optimized build.
+- cython and NVRTC have relevant flag paths but are not covered by the automated CUDA-GDB
+  integration test. Verify their behavior separately before relying on them.
+- Mapping has no column-level precision. Per-line re-anchoring prevents generated-line drift,
+  but loop and synthetic-statement locations remain approximate. A `-G` build can behave
+  differently from an optimized build.
 - Use a separate Python debug session for Python host breakpoints; this session targets CUDA
   device code.
-
-Next priorities are adding the automated test to an NVIDIA GPU CI runner, covering more
-execution backends, improving upstream span granularity, providing an official debug
-configuration entry point, and integrating compute-sanitizer diagnostics.

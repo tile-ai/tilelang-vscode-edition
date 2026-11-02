@@ -74,6 +74,14 @@ class TestCudaDebugIntegration(unittest.TestCase):
                 "-ex",
                 "next",
                 "-ex",
+                'printf "TLSP_LOOP_INFO_BEGIN\\n"',
+                "-ex",
+                "info line",
+                "-ex",
+                'printf "TLSP_LOOP_INFO_END\\n"',
+                "-ex",
+                "next",
+                "-ex",
                 'printf "TLSP_STEP_INFO_BEGIN\\n"',
                 "-ex",
                 "info line",
@@ -112,16 +120,20 @@ class TestCudaDebugIntegration(unittest.TestCase):
             self.assertIn("elementwise_add", kernels, details)
             thread_idx = _output_section(output, "TLSP_THREAD_IDX")
             self.assertRegex(thread_idx, r"\$\d+ = \d+", details)
+            loop_info = _output_section(output, "TLSP_LOOP_INFO")
+            self.assertIn(f'Line {BREAKPOINT_LINE - 1} of "', loop_info, details)
+            self.assertIn(str(KERNEL_SOURCE), loop_info, details)
             step_info = _output_section(output, "TLSP_STEP_INFO")
-            self.assertIn(f'Line {BREAKPOINT_LINE + 1} of "', step_info, details)
+            self.assertIn(f'Line {BREAKPOINT_LINE} of "', step_info, details)
             self.assertIn(str(KERNEL_SOURCE), step_info, details)
             self.assertIn("TLSP_CUDA_DEBUG_NUMERICS_OK", output, details)
 
             generated = debug_dir / "generated"
             sources = [*generated.rglob("*.c"), *generated.rglob("*.cu")]
             self.assertTrue(sources, f"no generated CUDA sources under {generated}\n{details}")
-            generated_text = "\n".join(source.read_text() for source in sources)
-            self.assertIn(f'#line {BREAKPOINT_LINE} "{KERNEL_SOURCE}"', generated_text, details)
+            directive = f'#line {BREAKPOINT_LINE} "{KERNEL_SOURCE}"'
+            for source in sources:
+                self.assertGreaterEqual(source.read_text().count(directive), 5, f"{source}\n{details}")
 
 
 if __name__ == "__main__":

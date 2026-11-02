@@ -71,8 +71,7 @@ Remote-SSH/WSL）以及 TileLang >= 0.1.15。
   和 NVCC `.cu` 源码。
 
 设置项：`tilelang.debug.cudaGdbPath`、`deviceDebug`、`breakOnLaunch`、`args`、`extraEnv`、
-`debugDir`。已在 RTX 5090/CUDA 13.0 上通过真实 CUDA-GDB 验收，包括 Python 断点、
-设备单步、线程变量和数值正确性。VS Code 使用方法、支持矩阵和验证证据见
+`debugDir`。安装配置、工作原理、使用方法和支持的执行路径见
 [docs/cuda-debugging_zh.md](./docs/cuda-debugging_zh.md)。
 
 ### Neovim
@@ -161,3 +160,7 @@ TLSP_TEST_PYTHON=/path/to/venv/bin/python python -m unittest tests.test_integrat
 诊断信息
 
 ![partial](./tilelang_lsp_extension/assets/partial.png)
+
+在 VS Code 中使用 Python 源码断点调试 CUDA：
+
+![CUDA 调试](./tilelang_lsp_extension/assets/debug.png)

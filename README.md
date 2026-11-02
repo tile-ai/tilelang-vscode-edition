@@ -77,10 +77,8 @@ It requires Linux + an NVIDIA GPU (local or Remote-SSH/WSL) and TileLang >= 0.1.
 
 Settings: `tilelang.debug.cudaGdbPath`, `tilelang.debug.deviceDebug`,
 `tilelang.debug.breakOnLaunch`, `tilelang.debug.args`, `tilelang.debug.extraEnv`, and
-`tilelang.debug.debugDir`. CUDA-GDB acceptance has passed on RTX 5090/CUDA 13.0, including
-Python breakpoints, device stepping, thread variables, and numerical correctness. See
-[docs/cuda-debugging.md](./docs/cuda-debugging.md) for VS Code setup, the support matrix,
-and validation evidence.
+`tilelang.debug.debugDir`. See [docs/cuda-debugging.md](./docs/cuda-debugging.md) for setup,
+architecture, usage, and supported execution paths.
 
 ### Neovim
 
@@ -170,3 +168,7 @@ TLSP_TEST_PYTHON=/path/to/venv/bin/python python -m unittest tests.test_integrat
 Diagnostics
 
 ![partial](./tilelang_lsp_extension/assets/partial.png)
+
+CUDA debugging with a Python-source breakpoint in VS Code:
+
+![CUDA debugging with a Python-source breakpoint](./tilelang_lsp_extension/assets/debug.png)

@@ -65,7 +65,8 @@ npm ci && npm run compile && npm run lint && npm run test:cuda-debug
   LayoutInference, ...). Never "fix" those failures. Tests assert exact 1-based
   hint/diagnostic/debug lines, so changing fixture lines means updating
   `tests/test_integration.py` and possibly `tests/test_debug_cuda.py` (which pins
-  `elementwise_add.py:23` and stepping to `:24`). `elementwise_add.py` and `cuda_debug_driver.py` are valid
+  `elementwise_add.py:23` and the loop sequence `23 -> 22 -> 23`). `elementwise_add.py` and
+  `cuda_debug_driver.py` are valid
   execution fixtures. Intentional undefined names use the ruff per-file-ignore in
   `pyproject.toml`.
 - CUDA debugging requires TileLang >= 0.1.15 for Python line mapping. Normal jit/compile

@@ -1,11 +1,11 @@
 """CUDA-GDB launcher for TileLang kernels: 'python -m tlsp.debug -- kernel.py'.
 
-Before running the user script, this module enables TileLang's
-'tl.emit_line_directives' pass config so generated device code maps statements
-back to Python source lines. It adds '-G' for full device debug information, or
-'-lineinfo' for line-only debugging, while preserving the quoting of existing
-compile flags. Caches are disabled by default so cached autotune results cannot
-bypass the debug build.
+Before running the user script, this module enables TileLang's line directives
+and, when available, per-generated-line re-anchoring so multi-line device code
+keeps the correct Python source location. It adds '-G' for full device debug
+information, or '-lineinfo' for line-only debugging, while preserving the
+quoting of existing compile flags. Caches are disabled by default so cached
+autotune results cannot bypass the debug build.
 
 Generated sources are kept under '<debug-dir>/generated' through both
 'debug_root_path' (JIT source dumps) and 'cuda.kernels_output_dir' (NVCC's
@@ -68,6 +68,15 @@ def line_directive_key() -> str | None:
     return _pass_config_key(_LINE_DIRECTIVE_ATTRIBUTE)
 
 
+def _supports_line_directive_levels() -> bool:
+    """Whether TileLang supports level 2 of tl.emit_line_directives."""
+    try:
+        env = importlib.import_module("tilelang.env")
+    except ImportError:
+        return False
+    return any(callable(getattr(env, name, None)) for name in ("parse_int_level", "parse_line_directive_level"))
+
+
 def cuda_output_dir_key() -> str | None:
     """Return the pass-config key that preserves NVCC's actual source input."""
     return _pass_config_key(_CUDA_OUTPUT_DIR_ATTRIBUTE)
@@ -87,7 +96,7 @@ def merge_debug_options(
 
     key = line_directive_key() if line_directives else None
     if key is not None:
-        pass_configs[key] = True
+        pass_configs[key] = 2 if _supports_line_directive_levels() else True
 
     output_key = cuda_output_dir_key() if generated_dir else None
     if output_key is not None:
@@ -205,8 +214,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if not args.keep_cache:
         os.environ["TILELANG_DISABLE_CACHE"] = "1"
-    if not args.no_line_directives:
-        os.environ["TILELANG_ENABLE_IR_SPAN"] = "1"
 
     key = None if args.no_line_directives else line_directive_key()
     if key is None and not args.no_line_directives:
@@ -214,6 +221,13 @@ def main(argv: list[str] | None = None) -> None:
             "tlsp.debug: Python line mapping requires TileLang >= 0.1.15 with tl.emit_line_directives; "
             "upgrade TileLang or pass --no-line-directives to debug generated CUDA instead"
         )
+
+    use_line_levels = key is not None and _supports_line_directive_levels()
+    if not args.no_line_directives:
+        os.environ["TILELANG_ENABLE_IR_SPAN"] = "1"
+        os.environ["TILELANG_EMIT_LINE_DIRECTIVES"] = "2" if use_line_levels else "1"
+    else:
+        os.environ["TILELANG_EMIT_LINE_DIRECTIVES"] = "0"
 
     generated_dir.mkdir(parents=True, exist_ok=True)
     install_debug_hooks(
@@ -228,8 +242,14 @@ def main(argv: list[str] | None = None) -> None:
         device_info = "-lineinfo"
     else:
         device_info = "off"
+    if key is None:
+        mapping = "off"
+    elif use_line_levels:
+        mapping = "on (every generated line)"
+    else:
+        mapping = "on (statement-level; every-line mode unsupported)"
     _log(f"device debug info: {device_info}")
-    _log(f"Python line mapping: {'on' if key is not None else 'off'}")
+    _log(f"Python line mapping: {mapping}")
     _log(f"generated sources: {generated_dir}")
     _log(f"running {script}")
 
