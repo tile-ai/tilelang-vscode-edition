@@ -4,7 +4,8 @@ Guidance for AI agents working in this repository.
 
 ## Project overview
 
-`tlsp` is an LSP server for [TileLang](https://github.com/tile-ai/tilelang) that shows
+This repository provides TileLang language support and CUDA device debugging in VS Code.
+`tlsp` is the LSP server component for [TileLang](https://github.com/tile-ai/tilelang); it shows
 inlay hints (buffer shapes/dtypes/scopes, kernel launch geometry) and diagnostics by
 actually compiling the user's kernels in a background subprocess. When tilelang is
 missing or compilation fails partway, the server degrades to a static AST-based mode

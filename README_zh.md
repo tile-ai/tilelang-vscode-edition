@@ -1,166 +1,103 @@
-# TileLang LSP (tlsp)
+# TileLang VS Code Edition
 
 [English README](./README.md)
 
-为 [TileLang](https://github.com/tile-ai/tilelang) 实现的 Language Server Protocol (LSP) 服务，
-提供 buffer shape/dtype/scope 与推断布局的 inlay hints、hover 详情和精确诊断。
+在 Visual Studio Code 中为 [TileLang](https://github.com/tile-ai/tilelang) 提供语言服务和
+CUDA 设备调试。
 
 ## 功能
 
-- **行尾 inlay hints**，共五类：
-  - `alloc` —— `X = T.alloc_*(...)` 行：shape/dtype/scope；LayoutInference 跑过后附带推断出的 `Layout`/`Fragment`
-  - `param` —— kernel 签名参数：`⟨(M, K) float16 @global⟩`
-  - `op` —— `T.copy` / `T.gemm` 等行：涉及 buffer 布局的短摘要
-  - `loop` —— `T.Pipelined` / `T.Parallel` 行：`⟨pipelined, stages=3⟩`、parallel loop layout
-  - `kernel` —— `with T.Kernel(...)` 行：grid 维度与线程数
-- **Hover**：在 hint 行上悬停查看完整 layout/fragment 文本。
-- **诊断**：三级精度（见下文）。
-- **kernel 编译不过也能用**：四级降级链尽可能给出 hints（见"工作原理"）。
-- **CUDA 调试（实验性）**：在 VS Code 中用 `cuda-gdb` 调试 TileLang kernel，断点/单步落在
-  你写的 Python 行上。需要 Linux + NVIDIA GPU、CUDA Toolkit 和 NVIDIA Nsight VS Code
-  扩展；详见 [docs/cuda-debugging_zh.md](./docs/cuda-debugging_zh.md)。
+### Language Server Protocol
 
-结果缓存于内存（LRU）与磁盘 `~/.cache/tilelang_lsp/`（可用 `TLSP_CACHE_DIR` 覆盖），
-key 为文件内容 hash + target + tilelang 版本。
+- 提供 buffer shape、dtype、存储作用域、推断布局、并行循环和 kernel launch 几何信息的
+  行尾提示（inlay hints）。
+- 提供 hover 详情和源码级诊断。
+- kernel 尚未写完或无法编译时，仍可提供静态提示和诊断。
+- 支持 VS Code 以及 Neovim 等 LSP 客户端。
+
+### CUDA 调试
+
+- 通过 `cuda-gdb` 将断点和设备单步映射回 TileLang Python 源码行。
+- 通过 NVIDIA Nsight 检查 CUDA kernel、线程、局部变量、寄存器和反汇编。
+- 使用 `-G` 提供完整设备调试信息，或使用 `-lineinfo` 进行更快的仅行号调试。
+- 对照原始 Python kernel 查看生成的 CUDA 源码。
 
 ## 安装
 
-1. Python 3.8+，且能 import [tilelang](https://github.com/tile-ai/tilelang)
-   （用于完整分析；没有 tilelang 时 tlsp 仍提供静态 hints）。
-2. 安装 server 包：
-   ```bash
-   pip install -e .
-   ```
-3. 安装 VS Code 扩展（见下）。
+### 环境要求
 
-## 使用
+- Python 3.8 或更高版本。静态 LSP 分析不依赖 TileLang，完整分析需要安装 TileLang。
+- CUDA 调试：Linux、NVIDIA GPU、包含 `nvcc` 和 `cuda-gdb` 的 CUDA Toolkit，以及
+  TileLang >= 0.1.15。
+- 在 VS Code 中调试 CUDA：安装 [NVIDIA Nsight VS Code Edition](https://marketplace.visualstudio.com/items?itemName=nvidia.nsight-vscode-edition)。
 
-### VS Code
+### 从源码构建
+
+在仓库根目录安装 `tlsp` Python 包：
+
+```bash
+python -m pip install -e .
+```
+
+构建 VS Code 扩展：
 
 ```bash
 cd tilelang_lsp_extension
-npm install
-vsce package   # 生成 tilelang-type-decorator-*.vsix
+npm ci
+npx --no-install vsce package
 ```
 
-在 VS Code 中安装生成的 `.vsix`。扩展会用配置的解释器启动 `python -m tlsp`。
-开发/调试扩展：`npm run compile`，然后在 VS Code 打开 `src/extension.ts` 按 F5。
+在 VS Code 的扩展菜单中选择 **Install from VSIX...**，安装生成的
+`tilelang-vscode-edition-*.vsix`。需要 CUDA 调试时，同时安装 Nsight。
+如果安装过旧版 `tilelang-type-decorator` 扩展，请先卸载，避免重命名后的扩展注册重复命令。
 
-配置项（均在 `tilelang.*` 下，修改后 server 自动重启）：
+使用 Remote-SSH 或 WSL 时，Python 包、CUDA 工具、TileLang 扩展和 Nsight 都需要安装在远端。
 
-| 配置项 | 默认值 | 含义 |
-|---|---|---|
-| `tilelang.pythonPath` | `"python"` | 运行 server 的 Python 解释器（须能 `import tlsp`；能 import tilelang 更佳） |
-| `tilelang.enableInlayHints` | `true` | server 总开关 |
-| `tilelang.serverArgs` | `[]` | 追加到 `python -m tlsp` 的额外 CLI 参数（如 `["--target", "c"]` 可改默认分析 target) |
-| `tilelang.serverEnv` | `{"TILELANG_ENABLE_DATA_RACE_CHECK": "1"}` | 传给 server 进程的环境变量（analyzer 子进程继承）。默认开启数据竞争诊断；删除该键即关闭。注意自定义时整体替换默认对象——仍要 race 诊断需保留该键。`PYTHONPATH` 由扩展托管 |
+## 使用语言服务
 
-### CUDA 调试（实验性）
+1. 将 `tilelang.pythonPath` 设置为能够导入 `tlsp` 的 Python 解释器。需要完整分析时，
+   选择安装了 TileLang 的解释器。
+2. 打开 TileLang Python 文件，提示和诊断会自动显示。
+3. 无法推断 kernel 实参时，在 kernel 附近添加 `<typecheck>` 指令：
 
-安装 [NVIDIA Nsight VS Code Edition](https://marketplace.visualstudio.com/items?itemName=nvidia.nsight-vscode-edition)
-后，执行 **TileLang: Debug CUDA Kernel** 会通过 `python -m tlsp.debug` 和 `cuda-gdb`
-启动当前 Python 脚本。启动器打开 TileLang 的 `tl.emit_line_directives` 并添加 `-G`，
-使设备断点和单步可以映射回 Python 源行。需要 Linux + NVIDIA GPU（本机或
-Remote-SSH/WSL）以及 TileLang >= 0.1.15。
-
-- 在 `with T.Kernel(...)` / `T.copy(...)` 等 Python 行下断点，然后运行命令。
-- `breakOnLaunch` 会在每次 kernel launch 时停下；先遇到 PyTorch 等框架 kernel 时继续运行，
-  或关闭它后仅依赖 Python pending breakpoint。
-- 关闭 `tilelang.debug.deviceDebug` 可改用 `-lineinfo`，进行更快的仅行号调试。
-- **TileLang: Open Generated CUDA Source** 查找 `.tlsp/debug/generated` 下的 JIT `.c`
-  和 NVCC `.cu` 源码。
-
-设置项：`tilelang.debug.cudaGdbPath`、`deviceDebug`、`breakOnLaunch`、`args`、`extraEnv`、
-`debugDir`。安装配置、工作原理、使用方法和支持的执行路径见
-[docs/cuda-debugging_zh.md](./docs/cuda-debugging_zh.md)。
-
-### Neovim
-
-```lua
-vim.lsp.config['tlsp'] = {
-  cmd = { 'python', '-m', 'tlsp' },  -- 无 CUDA 的机器加 '--target', 'c'
-  filetypes = { 'python' },
-  root_markers = { 'pyproject.toml', '.git' },
-}
-vim.lsp.config['tlsp'].capabilities = vim.lsp.protocol.make_client_capabilities()
-vim.lsp.enable('tlsp')
-```
-
-在 VS Code 之外使用时，在 server 进程环境中设 `TILELANG_ENABLE_DATA_RACE_CHECK=1`
-可开启数据竞争诊断（VS Code 扩展通过 `tilelang.serverEnv` 默认开启）。
-
-### `<typecheck>` 指令
-
-tlsp 需要具体的 kernel 实参才能展开 TIR。按以下优先级解析：
-
-1. 离 kernel 定义最近的注释指令：
    ```python
    # <typecheck> M=1024, N=1024, K=1024, block_M=128, kernel=matmul
    ```
-   值经 `ast.literal_eval` 解析；`"float16"` 之类的 dtype 字符串直接可用。
-   `kernel=` 用于选择分析哪个 kernel（缺省取文件内第一个 `@tilelang.jit`）。
-2. 从文件中 `<name>.compile(...)` / 对 kernel 的直接调用收割 kwargs。
-3. 函数签名默认值。
 
-分析 target 取自代码：`# <typecheck> target=c` 优先于
-`<kernel>.compile(...)` 调用点的 `target=`，调用点又优先于
-`@tilelang.jit(target=...)` 装饰器字面量，装饰器再优先于 server 默认值
-（`--target`，未设置时为 `cuda`）。
+完整设置、target 解析、Neovim 配置、工作原理和开发命令见 [LSP 指南](./docs/lsp_zh.md)。
 
-缺少必需参数时会产生诊断，提示补 `<typecheck>` 指令。
-`T.const("M, N")` 声明的符号变量可以不绑定（保持符号即可）。
+![TileLang LSP 提示](./tilelang_lsp_extension/assets/demo.png)
 
-### CLI 调试
+## 调试 CUDA kernel
 
-```bash
-python -m tlsp.analyzer --once path/to/kernel.py --target c
-```
-以单行 JSON 输出完整分析结果（schema v2）。
+### 依赖要求
 
-## 工作原理
+**调试前必须安装以下依赖：**
 
-每次打开/保存时，analyzer 按四级降级链执行并上报所处模式：
+- 配备 NVIDIA GPU 的 Linux 机器，以及包含 `nvcc` 和 `cuda-gdb` 的 CUDA Toolkit；
+- [NVIDIA Nsight VS Code Edition](https://marketplace.visualstudio.com/items?itemName=nvidia.nsight-vscode-edition)；
+- 安装了 TileLang >= 0.1.15 和 `tlsp` 的 Python 环境。
 
-| 模式 | 条件 | 你能得到什么 |
-|---|---|---|
-| `full` | `get_tir` 成功 + 前端 pass 跑通至 LayoutInference | 全部 hints，alloc hint 带推断布局 |
-| `partial` | `get_tir` 成功，某个 pass 失败 | 用最后一个成功的 IR 状态收集 hints + L2 精确诊断（从 pass 报错中的 `--> file:line:col` 标记解析出行号） |
-| `tracer` | IR span 不可用（旧版 tilelang，或 `TILELANG_ENABLE_IR_SPAN=0`） | monkeypatch `T.*` 入口的调用 tracer 产出 hints；pass 成功时按 buffer 名 join 布局 |
-| `static` | `get_tir` 失败（import 错误、NameError、写到一半的代码） | 纯 AST hints（shape/dtype/scope）+ shape mismatch 警告 + L1 诊断（traceback 重映射定位） |
+使用 Remote-SSH 或 WSL 时，CUDA 工具、Nsight、TileLang 和 `tlsp` 都必须安装在**远端**。
 
-若 analyzer 子进程本身崩溃或完全没有 tilelang，server 降级为静态模式并给出
-文件级（L3）诊断说明原因。
+### 开始调试
 
-编辑过程中（保存前）hints 来自同一套静态分析（进程内运行）——
-因此对残缺代码也能保持响应与正确。
+1. 将 `tilelang.pythonPath` 设置为上述 Python 环境。
+2. 打开实际执行 kernel 的 Python 脚本，在 TileLang 设备语句上设置断点。
+3. 通过命令面板或编辑器菜单运行 **TileLang: Debug CUDA Kernel**。
+4. 检查 CUDA kernel 和线程、单步执行设备代码，或通过
+   **TileLang: Open Generated CUDA Source** 查看生成的 `.c` 和 `.cu` 文件。
 
-## 开发
+启动器默认启用 Python 行映射和 `-G` 设备调试。将 `tilelang.debug.deviceDebug=false`
+可改为仅行号调试。关闭 `tilelang.debug.breakOnLaunch` 后，可以只依赖 Python 断点，
+避免每次 kernel launch 都停止。
 
-```bash
-python -m unittest discover tests -v    # 单元测试（无需 tilelang）
-```
+配置、直接使用 `cuda-gdb` 的方法、行映射原理、支持的执行路径和集成测试见
+[CUDA 调试指南](./docs/cuda-debugging_zh.md)。
 
-在 `tilelang_lsp_extension/` 中运行 `npm run test:cuda-debug`，无需 VS Code/GPU 即可测试
-launch 配置与生成源码查找。opt-in 的 CUDA-GDB 验收命令见
-[docs/cuda-debugging_zh.md](./docs/cuda-debugging_zh.md)。
+![使用 Python 源码断点调试 CUDA](./tilelang_lsp_extension/assets/debug.png)
 
-集成测试需要一个能 import tilelang 的 python——直接 `pip install tilelang>=0.1.13`
-的环境即可（未设置环境变量时自动 skip）：
+## 文档
 
-```bash
-TLSP_TEST_PYTHON=/path/to/venv/bin/python python -m unittest tests.test_integration -v
-# 用源码构建的环境时，再指一下源码树：
-# TLSP_TEST_TILELANG=/path/to/tilelang/repo
-```
-
-## 演示
-
-![demo](./tilelang_lsp_extension/assets/demo.png)
-
-诊断信息
-
-![partial](./tilelang_lsp_extension/assets/partial.png)
-
-在 VS Code 中使用 Python 源码断点调试 CUDA：
-
-![CUDA 调试](./tilelang_lsp_extension/assets/debug.png)
+- [LSP 指南](./docs/lsp_zh.md)：使用方法、配置、工作原理和开发。
+- [CUDA 调试指南](./docs/cuda-debugging_zh.md)：安装配置、CLI、设计原理和使用限制。

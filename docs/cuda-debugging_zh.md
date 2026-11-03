@@ -4,9 +4,9 @@
 
 ## 概述
 
-本仓库实现了实验性 CUDA 调试入口：复用 NVIDIA Nsight VS Code Edition 的
-`cuda-gdb` 调试适配器，把 TileLang 生成的设备代码映射回用户编写的 Python 行。
-无需自研或 fork DAP，也不需要修改 TileLang 源码。
+TileLang VS Code Edition 复用 NVIDIA Nsight VS Code Edition 的 `cuda-gdb` 调试适配器提供
+CUDA 调试功能，把 TileLang 生成的设备代码映射回用户编写的 Python 行。无需自研或 fork
+DAP，也不需要修改 TileLang 源码。
 
 ## 运行前提
 

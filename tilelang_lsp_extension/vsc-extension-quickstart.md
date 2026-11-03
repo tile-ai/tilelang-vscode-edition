@@ -1,22 +1,45 @@
-# Welcome to your VS Code Extension
+# Extension Development
 
-## What's in the folder
+## Install dependencies
 
-- This folder contains all of the files necessary for your extension.
-- `package.json` - this is the manifest file in which you declare your extension and command.
-  - The sample plugin registers a command and defines its title and command name. With this information VS Code can show the command in the command palette. It doesn’t yet need to load the plugin.
-- `src/extension.ts` - this is the main file where you will provide the implementation of your command.
-  - The file exports one function, `activate`, which is called the very first time your extension is activated (in this case by executing the command). Inside the `activate` function we call `registerCommand`.
-  - We pass the function containing the implementation of the command as the second parameter to `registerCommand`.
+From `tilelang_lsp_extension/`, install the locked Node dependencies:
 
-## Get up and running straight away
+```bash
+npm ci
+```
 
-- Press `F5` to open a new window with your extension loaded.
-- Run your command from the command palette by pressing (`Ctrl+Shift+P` or `Cmd+Shift+P` on Mac) and typing `Hello World`.
-- Set breakpoints in your code inside `src/extension.ts` to debug your extension.
-- Find output from your extension in the debug console.
+Install the `tlsp` Python package from the repository root as well:
 
-## Make changes
+```bash
+python -m pip install -e .
+```
 
-- You can relaunch the extension from the debug toolbar after changing code in `src/extension.ts`.
-- You can also reload (`Ctrl+R` or `Cmd+R` on Mac) the VS Code window with your extension to load your changes.
+## Start an Extension Development Host
+
+1. Run `npm run compile`.
+2. Open `src/extension.ts` in VS Code.
+3. Press F5 to launch a new VS Code window with the extension loaded.
+4. Open a TileLang Python file in that window and configure `tilelang.pythonPath` if needed.
+
+Use `npm run watch` while editing TypeScript, then reload the Extension Development Host to
+pick up changes. Set breakpoints in the extension source to debug the client itself.
+
+## Checks
+
+Run the standard checks before submitting changes:
+
+```bash
+npm run compile
+npm run lint
+npm run test:cuda-debug
+```
+
+From the repository root, also run the Python tests and lint hooks:
+
+```bash
+python -m unittest discover tests -v
+pre-commit run --all-files
+```
+
+See `docs/lsp.md` and `docs/cuda-debugging.md` in the repository for server-side development
+and CUDA-GDB integration testing.

@@ -1,7 +1,12 @@
 {
-  "name": "tilelang-type-decorator",
-  "displayName": "TileLang Type Decorator",
-  "description": "Language support for TileLang: inlay hints for buffer shapes, dtypes, and scopes.",
+  "name": "tilelang-vscode-edition",
+  "displayName": "TileLang VS Code Edition",
+  "description": "TileLang language support and CUDA device debugging in Visual Studio Code.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tile-ai/tilelang-vscode-edition.git",
+    "directory": "tilelang_lsp_extension"
+  },
   "icon": "assets/icon.png",
   "publisher": "tileAI-tilelangLSP-project",
   "version": "0.1.0",

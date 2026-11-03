@@ -4,10 +4,9 @@
 
 ## Overview
 
-This repository provides an experimental CUDA debugging entry point. It reuses the
-`cuda-gdb` debug adapter from NVIDIA Nsight Visual Studio Code Edition and maps generated
-TileLang device code back to the user's Python source lines. No custom DAP fork or TileLang
-source changes are required.
+TileLang VS Code Edition provides CUDA debugging through the `cuda-gdb` debug adapter from
+NVIDIA Nsight Visual Studio Code Edition. Generated TileLang device code is mapped back to the
+user's Python source lines without a custom DAP fork or TileLang source changes.
 
 ## Requirements
 
